@@ -1,0 +1,77 @@
+{
+  "resource_sources": [
+    {
+      "name": "量子资源",
+      "api": "https://cj.lziapi.com"
+    },
+    {
+      "name": "暴风资源",
+      "api": "https://bfzyapi.com"
+    },
+    {
+      "name": "最大资源",
+      "api": "https://api.zuidapi.com"
+    },
+    {
+      "name": "红牛资源",
+      "api": "https://www.hongniuzy2.com"
+    },
+    {
+      "name": "豪华资源",
+      "api": "https://hhzyapi.com"
+    },
+    {
+      "name": "虎牙资源",
+      "api": "https://www.huyaapi.com"
+    },
+    {
+      "name": "极速资源",
+      "api": "https://jszyapi.com"
+    },
+    {
+      "name": "光速资源",
+      "api": "https://api.guangsuapi.com"
+    },
+    {
+      "name": "金鹰资源",
+      "api": "https://jyzyapi.com"
+    },
+    {
+      "name": "电影天堂",
+      "api": "https://caiji.dyttzyapi.com"
+    },
+    {
+      "name": "非凡影视",
+      "api": "https://cj.ffzyapi.com"
+    },
+    {
+      "name": "飘零资源",
+      "api": "https://p2100.net"
+    },
+    {
+      "name": "魔都资源",
+      "api": "https://caiji.moduapi.cc"
+    },
+    {
+      "name": "360资源",
+      "api": "https://360zy.com"
+    },
+    {
+      "name": "非凡资源",
+      "api": "https://api.apibdzy.com"
+    }
+  ],
+  "official_sources": {
+    "douban": true,
+    "iqiyi": true,
+    "youku": true
+  },
+  "match": {
+    "threshold": 0.75,
+    "max_candidates": 10
+  },
+  "http": {
+    "timeout_s": 15,
+    "retries": 1
+  }
+}

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 个人查询记录，绝对不要上传
+logs/
+
+# 本地下载残留与导出
+*.part
+*.ts
+下载链接*.txt
+
+# ffmpeg 等二进制（体积/版权原因，用户自行放置）
+bin/
+
+# 内部笔记
+上线方案与风险.md
+
+# 系统
+.DS_Store
+Thumbs.db
