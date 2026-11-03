@@ -120,6 +120,8 @@ film-search/
 
 ## 常见问题
 
+- **搜索报 `TypeError: shutdown() got an unexpected keyword argument 'cancel_futures'`？**
+  你的 Python 版本低于 3.9（常见于电脑里残留的老版本）。工具已兼容可以继续用（慢源会多等几秒），但**强烈建议升级**：python.org 装 3.10+（勾 PATH），装完旧版本不卸载也不冲突，启动器会自动用新的。
 - **双击启动器报 `[ERROR] exit code 9009` 或秒弹 Microsoft Store？**
   系统里没有可用的 Python（9009 = 命令不存在），或者只有微软放的「假 python」占位。按上面第 0 步安装（记得勾 PATH），或关闭应用执行别名里的 python 两项。仓库根目录的 `Install-Python-Guide.txt` 有图文详解。
 - **搜出来的结果标「清单 N 集 · 迅雷可下」没有 mp4？** 该源只提供 m3u8。迅雷对 m3u8 支持边下边播；想要 mp4 装 ffmpeg 后用 `download` 命令自动拼接。

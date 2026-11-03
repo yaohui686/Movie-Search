@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -274,6 +275,11 @@ def search_multi(sources: list[dict], queries: list[str], limit: int = 20,
                 rows.extend(got)
     finally:
         # 关键：不等慢线程。wait=True 会把截止时间完全废掉。
-        pool.shutdown(wait=False, cancel_futures=True)
+        # cancel_futures 需要 Python 3.9+；老版本只能 wait=False 兜底
+        #（退出时会等在途任务收尾，最坏多等几秒，功能不受影响）。
+        if sys.version_info >= (3, 9):
+            pool.shutdown(wait=False, cancel_futures=True)
+        else:
+            pool.shutdown(wait=False)
 
     return _merge(rows)

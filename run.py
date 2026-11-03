@@ -71,6 +71,10 @@ def write_crash(exc: BaseException) -> None:
 from filmsearch import (douban, iqiyi, youku, matcher, report,  # noqa: E402
                         resource, fuzzy, player, downloader, webdl, webui)
 
+if sys.version_info < (3, 9):
+    print(f"[!] 提示：当前 Python 版本 {sys.version.split()[0]} 较老，工具仍可运行，"
+          f"但建议升级到 3.10 以上（python.org 下载，安装时勾选 Add python.exe to PATH）。")
+
 OFFICIAL = {"iqiyi": iqiyi, "youku": youku}
 
 
