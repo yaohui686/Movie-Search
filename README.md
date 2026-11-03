@@ -22,12 +22,23 @@
 
 ## 快速开始
 
-要求：Windows 10/11 + Python 3.10+（零第三方依赖）。
+要求：Windows 10/11 + Python 3.10+（工具本身零第三方依赖）。
+
+### 第 0 步：安装 Python（已装可跳过）
+
+1. 打开 <https://www.python.org/downloads/>，点黄色大按钮下载
+   （**不方便访问官网？** 本项目 [Releases](https://github.com/yaohui686/Movie-Search/releases) 页提供了离线安装包，Assets 里直接下载）
+2. 运行安装器，**第一屏底部务必勾选 ☑ Add python.exe to PATH**，再点 Install Now
+3. 装完重新双击 `影视检索.cmd` 即可
+
+> 💡 双击后秒弹 Microsoft Store？那是系统自带的「假 python」占位：设置 → 应用 → 高级应用设置 → **应用执行别名** → 把 python.exe / python3.exe 两个开关关掉即可。
+
+### 启动
 
 ```bat
-:: 1. 克隆
-git clone https://github.com/<your-name>/film-search.git
-cd film-search
+:: 1. 克隆或直接 Download ZIP 解压
+git clone https://github.com/yaohui686/Movie-Search.git
+cd Movie-Search
 
 :: 2. 双击启动（或命令行）
 影视检索.cmd
@@ -109,6 +120,8 @@ film-search/
 
 ## 常见问题
 
+- **双击启动器报 `[ERROR] exit code 9009` 或秒弹 Microsoft Store？**
+  系统里没有可用的 Python（9009 = 命令不存在），或者只有微软放的「假 python」占位。按上面第 0 步安装（记得勾 PATH），或关闭应用执行别名里的 python 两项。仓库根目录的 `Install-Python-Guide.txt` 有图文详解。
 - **搜出来的结果标「清单 N 集 · 迅雷可下」没有 mp4？** 该源只提供 m3u8。迅雷对 m3u8 支持边下边播；想要 mp4 装 ffmpeg 后用 `download` 命令自动拼接。
 - **播放没反应？** 资源站 CDN 可能失效，换一条结果；或源站域名变了，改 `cfg/app.json`。
 - **想加资源站？** 苹果CMS 站点接口格式统一，往 `cfg/app.json` 加 `{"name": "xx", "api": "https://..."}` 即可，用 `python tools/probe_sources.py --write` 探活。
