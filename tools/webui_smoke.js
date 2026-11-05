@@ -33,6 +33,7 @@ function mkEl(props = {}) {
     style: props.styleProp ? { display: props.styleProp } : {},
     dataset: {}, disabled: false,
     classList: { contains: () => false, add() {}, remove() {} },
+    focus() {}, blur() {},
     addEventListener() {}, appendChild() {}, select() {}, remove() {}, click() {},
     querySelector: () => null,
     querySelectorAll: () => [],
@@ -63,6 +64,8 @@ const sandbox = {
   },
   window: { open: () => {} },
   navigator: {},
+  localStorage: { getItem: () => null, setItem: () => {} },
+  location: { href: "" },
   fetch: async () => ({ ok: true, body: stream }),
   Blob: class { constructor() {} },
   URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
@@ -104,9 +107,21 @@ vm.runInContext(script, sandbox);
   sandbox.exportRowTxt(0);
   check("全季导出不报错", true);
 
+  // 本机下载弹窗流程
+  sandbox.openDlModal("https://cdn.example.com/e01.mp4", "名.mp4");
+  check("弹窗打开", els["#dlmodal"].style.display === "flex");
+  check("弹窗显示文件名", els["#mname"].textContent === "名.mp4");
+  els["#toast"].textContent = "";
+  sandbox.confirmDl();   // mock fetch 是 NDJSON 流，json() 失败 → 走 catch 分支
+  await new Promise(r => setTimeout(r, 20));
+  check("确认下载有反馈", els["#toast"].textContent.length > 0);
+  sandbox.closeDl();
+  check("弹窗关闭", els["#dlmodal"].style.display === "none");
+
   const lk = els["#lk0"].innerHTML;
   check("直链列表默认展开(含每集清单)", lk.includes("第01集") && lk.includes("第02集"));
   check("清单行也有迅雷下载", (lk.match(/迅雷下载/g) || []).length >= 2);
+  check("本机下载按钮触发弹窗", lk.includes("本机下载…") && lk.includes("openDlModal"));
   check("清单行有播放按钮", lk.includes("playUrl"));
   check("选集框有全部按钮", lk.includes("setAllEps"));
   check("无嵌套引号", !/copyText\(this\.dataset\.u,'/.test(lk));

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import urllib.parse
 import uuid
@@ -82,9 +83,8 @@ INDEX_HTML = """<!doctype html>
   .res{color:#7aa7ff;font-size:12px}
   #dlpanel{display:none;background:var(--card);border:1px solid var(--line);
     border-radius:10px;padding:12px 16px;margin-bottom:14px}
-  .dlhead{color:var(--dim);font-size:12px;margin-bottom:8px}
-  #dldir{width:300px;background:#101018;border:1px solid var(--line);
-    border-radius:6px;padding:4px 9px;color:var(--txt);font-size:12px;outline:none;margin:0 6px}
+  .dlhead{color:var(--dim);font-size:12px;margin-bottom:8px;display:flex;
+    align-items:center;gap:8px;flex-wrap:wrap}
   .dltask{padding:7px 0;border-top:1px solid #1e1e2a}
   .dltask:first-of-type{border-top:0}
   .dlname{font-size:13px;color:#cfd3dc;margin-bottom:5px;word-break:break-all}
@@ -97,6 +97,21 @@ INDEX_HTML = """<!doctype html>
   #toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);
     background:var(--acc);color:#fff;padding:8px 18px;border-radius:6px;
     font-size:13px;display:none;z-index:9}
+  #dlmodal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:center;justify-content:center;z-index:10}
+  .mbox{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:20px 22px;width:min(560px,92vw)}
+  .mtitle{font-size:16px;font-weight:600;margin-bottom:8px}
+  .mcontent{color:#cfd3dc;font-size:13px;margin-bottom:12px;word-break:break-all}
+  .mrow{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}
+  #mdir{flex:1;min-width:240px;background:#101018;border:1px solid var(--line);
+    border-radius:6px;padding:8px 11px;color:var(--txt);font-size:13px;outline:none}
+  #mdir:focus{border-color:var(--acc)}
+  .mbtns button{padding:8px 14px;font-size:13px}
+  .mgo{background:var(--acc);color:#fff;border:0;border-radius:6px;cursor:pointer}
+  .mgo:hover{filter:brightness(1.15)}
+  .mtip{color:var(--dim);font-size:12px;line-height:1.9;margin-top:14px;
+    border-top:1px solid var(--line);padding-top:10px}
   .foot{color:#5d626c;font-size:12px;margin-top:26px;border-top:1px solid var(--line);
     padding-top:12px;line-height:1.9}
   .spin{display:inline-block;width:12px;height:12px;border:2px solid #2c2c38;
@@ -113,6 +128,27 @@ INDEX_HTML = """<!doctype html>
   <div id="status"></div>
   <div id="dlpanel"></div>
   <div id="out"><div class="empty">搜一部试试 —— 直链 mp4 点「下载」浏览器直接另存为，<br>或复制丢给迅雷 / IDM；m3u8 清单可点「播放」直接看。</div></div>
+</div>
+<div id="dlmodal" style="display:none">
+  <div class="mbox">
+    <div class="mtitle">本机下载</div>
+    <div class="mcontent" id="mname"></div>
+    <div class="mrow">保存位置：
+      <input id="mdir" placeholder="留空 = 默认下载文件夹">
+    </div>
+    <div class="mrow mbtns">
+      <button class="mgo" onclick="confirmDl()">开始下载（本机拼装，出完整视频文件）</button>
+    </div>
+    <div class="mrow mbtns">
+      <button class="cp" onclick="dlThunder()">用迅雷下载（由迅雷接管）</button>
+      <button class="cp" onclick="closeDl()">取消</button>
+    </div>
+    <div class="mtip">
+      · 本机下载 = 工具后台把清单拼成完整 mp4/ts，下完点「打开文件夹」就能看到<br>
+      · 用迅雷 = 唤起迅雷新建任务，进度在迅雷里看；两者二选一<br>
+      · 回车 = 开始下载，Esc = 取消
+    </div>
+  </div>
 </div>
 <div id="toast"></div>
 <script>
@@ -305,16 +341,16 @@ function toggleLinks(i, specOverride){
       return '<div class="row"><span class="ep">'+esc(lk.ep)+'</span>'
         + '<a class="dl" href="'+thunderOf(lk.url)+'">迅雷下载</a>'
         + '<a class="dl list" href="'+esc(fileUrl(lk.ep,lk.url,r),true)+'" download>浏览器下载</a>'
-        + '<button class="cp dlbtn" onclick="startDl(this.dataset.u,this.dataset.n)" '
-        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">下载到本机</button>'
+        + '<button class="cp dlbtn" onclick="openDlModal(this.dataset.u,this.dataset.n)" '
+        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">本机下载…</button>'
         + '<button class="cp" onclick="copyText(this.dataset.u,this.dataset.m)" data-m="直链已复制" data-u="'+esc(lk.url,true)+'">复制</button>'
         + '<span class="url">'+esc(lk.url)+'</span></div>';
     }
     if(lk.kind==='m3u8'){
       return '<div class="row"><span class="ep">'+esc(lk.ep)+'</span>'
         + '<a class="dl list" href="'+thunderOf(lk.url)+'">迅雷下载</a>'
-        + '<button class="cp dlbtn" onclick="startDl(this.dataset.u,this.dataset.n)" '
-        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">下载到本机</button>'
+        + '<button class="cp dlbtn" onclick="openDlModal(this.dataset.u,this.dataset.n)" '
+        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">本机下载…</button>'
         + '<button class="cp" onclick="playUrl(this.dataset.u)">播放</button>'
         + '<button class="cp" onclick="copyText(this.dataset.u,this.dataset.m)" data-m="清单已复制" data-u="'+esc(lk.url,true)+'">复制清单</button>'
         + '<span class="url">'+esc(lk.url)+'</span></div>';
@@ -366,22 +402,42 @@ function copyRow(i){
     '已复制 '+urls.length+' 条 → 迅雷「新建任务」Ctrl+V 整批开下');
 }
 let dlTimer = null;
-function dlDir(){
-  const el = document.getElementById('dldir');
-  return el ? el.value.trim() : '';
+let _dlCtx = null;
+let DEF_DIR = '';
+function openDlModal(u, n){
+  _dlCtx = {u:u, n:n};
+  $('#mname').textContent = n;
+  $('#mdir').value = localStorage.getItem('fsdl_dir') || DEF_DIR || '';
+  $('#dlmodal').style.display = 'flex';
+  setTimeout(()=>$('#mdir').focus(), 50);
 }
-function saveDir(){
-  const v = dlDir();
-  localStorage.setItem('fsdl_dir', v);
-  toast(v ? '保存位置已记住：' + v : '已恢复默认位置（downloads 文件夹）');
-}
-function startDl(u, n){
-  const dir = dlDir();
-  fetch('/api/download?u='+ENC(u)+'&name='+ENC(n)+'&dir='+ENC(dir))
+function closeDl(){ $('#dlmodal').style.display = 'none'; }
+function confirmDl(){
+  if(!_dlCtx) return;
+  const dir = $('#mdir').value.trim();
+  localStorage.setItem('fsdl_dir', dir);
+  fetch('/api/download?u='+ENC(_dlCtx.u)+'&name='+ENC(_dlCtx.n)+'&dir='+ENC(dir))
     .then(r=>r.json())
-    .then(d=>{ toast('已加入下载队列：'+d.name+' → '+d.dir); pollDl(); })
+    .then(d=>{ closeDl(); toast('已开始下载 → '+d.dir); refreshDl(); })
     .catch(()=>toast('任务创建失败'));
 }
+function dlThunder(){
+  if(!_dlCtx) return;
+  location.href = thunderOf(_dlCtx.u);
+  closeDl();
+  toast('已唤起迅雷新建任务');
+}
+function openFolder(p){
+  fetch('/api/openfolder?path='+ENC(p))
+    .then(()=>toast('已在资源管理器中打开'))
+    .catch(()=>toast('打开失败'));
+}
+document.addEventListener('keydown', e=>{
+  const m = document.getElementById('dlmodal');
+  if(!m || m.style.display !== 'flex') return;
+  if(e.key === 'Escape') closeDl();
+  if(e.key === 'Enter') confirmDl();
+});
 function pollDl(){
   if(dlTimer) return;
   refreshDl();
@@ -393,10 +449,10 @@ function refreshDl(){
     const box = document.getElementById('dlpanel');
     if(!box) return;
     box.style.display='block';
-    const savedDir = localStorage.getItem('fsdl_dir') || '';
     const list = ts.length ? ts.map(t=>{
           let st;
-          if(t.status==='done') st='<span class="ok">✅ 完成</span>';
+          if(t.status==='done') st='<span class="ok">✅ 完成</span>'
+            + '<button class="cp" onclick="openFolder(this.dataset.p)" data-p="'+esc(t.path,true)+'">打开文件夹</button>';
           else if(t.status==='error') st='<span class="bad">❌ 失败：'+esc(t.note||'')+'</span>';
           else if(t.status==='queued') st='<span class="dim">排队中…</span>';
           else st='<span class="dim">'+esc(t.note||'下载中…')+'</span>';
@@ -404,13 +460,16 @@ function refreshDl(){
           const size = t.total ? '<span class="dim">'+(t.done/1048576).toFixed(1)+' / '+(t.total/1048576).toFixed(1)+' MB</span>' : '';
           return '<div class="dltask"><div class="dlname">'+esc(t.name)+'　'+st+'　'+size+'</div>'
             + '<div class="dlbar"><div class="dlfill" style="width:'+pct+'%"></div></div></div>';
-        }).join('') : '<div class="dim" style="padding:6px 0">暂无下载任务 —— 在下面的结果里点「下载到本机」即可</div>';
-    box.innerHTML = '<div class="dlhead">本机下载 · 保存位置：'
-      + '<input id="dldir" placeholder="留空 = downloads 文件夹（极空间可设为同步目录）" value="'+esc(savedDir)+'" '
-      + 'onchange="saveDir()"> <button class="cp" onclick="saveDir()">记住</button></div>'
+        }).join('') : '<div class="dim" style="padding:6px 0">暂无下载任务 —— 在下面的结果里点「本机下载…」即可</div>';
+    box.innerHTML = '<div class="dlhead">默认保存位置：'+esc(DEF_DIR || 'downloads 文件夹')
+      + '　<button class="cp" onclick="openFolder()">打开文件夹</button></div>'
       + list;
   }).catch(()=>{});
 }
+fetch('/api/ping').then(r=>r.json()).then(d=>{
+  DEF_DIR = d.dir || '';
+  refreshDl();
+}).catch(()=>{});
 pollDl();
 function txtTitle(r){
   return ((r.title||'video')+'('+(r.year||'')+')_全季链接')
@@ -557,6 +616,16 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/ping":
+            self._json({"ok": True, "dir": self.server.download_dir})
+            return
+
+        if path == "/api/openfolder":
+            p = (params.get("path") or [""])[0] or self.server.download_dir
+            target = Path(p)
+            if not target.exists():
+                self._json({"err": "not found"}, 400)
+                return
+            subprocess.Popen(["explorer", "/select,", str(target)])
             self._json({"ok": True})
             return
 
