@@ -67,6 +67,7 @@ const sandbox = {
   Blob: class { constructor() {} },
   URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
   setTimeout: (fn) => setTimeout(fn, 0), clearTimeout: () => {},
+  setInterval: () => 0, clearInterval: () => {},
   TextDecoder, TextEncoder,
   btoa, atob, unescape, escape,
   console,

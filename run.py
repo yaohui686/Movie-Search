@@ -496,7 +496,9 @@ def cmd_play(name: str, cfg: dict, index: int = 1) -> int:
 
 def cmd_web(port: int = 0) -> int:
     """网页下载台：浏览器里搜片、看直链、点下载、直接播放。"""
-    srv = webui.WebUIServer(do_resource, _real_resolution, load_cfg(), port)
+    dl_dir = ROOT / "downloads"
+    srv = webui.WebUIServer(do_resource, _real_resolution, load_cfg(), port,
+                            download_dir=dl_dir)
     srv.start()
     page = srv.url()
     print("=" * 60)
@@ -504,6 +506,9 @@ def cmd_web(port: int = 0) -> int:
     print("=" * 60)
     print(f"  已打开：{page}")
     print("  · 搜索框输片名 → 结果卡片点「下载」直接另存为")
+    print("  · 「下载到本机」= 后台拼成完整视频文件，存放在：")
+    print(f"      {dl_dir}")
+    print("    （极空间等 NAS 可把 downloads 文件夹设为同步/共享目录）")
     print("  · 「复制全部直链」整批给迅雷；「播放」直接看")
     print("  · 关闭方式：回到本窗口按 Ctrl+C 或回车")
     print("=" * 60)

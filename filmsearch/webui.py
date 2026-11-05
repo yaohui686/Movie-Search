@@ -18,9 +18,11 @@ from __future__ import annotations
 import json
 import threading
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
-from . import player, webdl
+from . import downloader, player, webdl
 
 INDEX_HTML = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -78,6 +80,17 @@ INDEX_HTML = """<!doctype html>
     border-radius:6px;padding:5px 9px;color:var(--txt);font-size:13px;outline:none}
   .epsbox span{color:var(--dim);font-size:12px}
   .res{color:#7aa7ff;font-size:12px}
+  #dlpanel{display:none;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:12px 16px;margin-bottom:14px}
+  .dlhead{color:var(--dim);font-size:12px;margin-bottom:8px}
+  .dltask{padding:7px 0;border-top:1px solid #1e1e2a}
+  .dltask:first-of-type{border-top:0}
+  .dlname{font-size:13px;color:#cfd3dc;margin-bottom:5px;word-break:break-all}
+  .ok{color:#5ad08a}.bad{color:#ff8080}.dim{color:var(--dim);font-size:12px}
+  .dlbar{height:6px;background:#1e1e2a;border-radius:3px;overflow:hidden;margin:4px 0}
+  .dlfill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s}
+  button.cp.dlbtn{color:#7aa7ff;border-color:#152642}
+  button.cp.dlbtn:hover{background:#152642}
   .empty{color:var(--dim);text-align:center;padding:50px 0;font-size:14px}
   #toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);
     background:var(--acc);color:#fff;padding:8px 18px;border-radius:6px;
@@ -96,6 +109,7 @@ INDEX_HTML = """<!doctype html>
     <button id="go">搜 索</button>
   </div>
   <div id="status"></div>
+  <div id="dlpanel"></div>
   <div id="out"><div class="empty">搜一部试试 —— 直链 mp4 点「下载」浏览器直接另存为，<br>或复制丢给迅雷 / IDM；m3u8 清单可点「播放」直接看。</div></div>
 </div>
 <div id="toast"></div>
@@ -289,12 +303,16 @@ function toggleLinks(i, specOverride){
       return '<div class="row"><span class="ep">'+esc(lk.ep)+'</span>'
         + '<a class="dl" href="'+thunderOf(lk.url)+'">迅雷下载</a>'
         + '<a class="dl list" href="'+esc(fileUrl(lk.ep,lk.url,r),true)+'" download>浏览器下载</a>'
+        + '<button class="cp dlbtn" onclick="startDl(this.dataset.u,this.dataset.n)" '
+        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">下载到本机</button>'
         + '<button class="cp" onclick="copyText(this.dataset.u,this.dataset.m)" data-m="直链已复制" data-u="'+esc(lk.url,true)+'">复制</button>'
         + '<span class="url">'+esc(lk.url)+'</span></div>';
     }
     if(lk.kind==='m3u8'){
       return '<div class="row"><span class="ep">'+esc(lk.ep)+'</span>'
         + '<a class="dl list" href="'+thunderOf(lk.url)+'">迅雷下载</a>'
+        + '<button class="cp dlbtn" onclick="startDl(this.dataset.u,this.dataset.n)" '
+        + '      data-u="'+esc(lk.url,true)+'" data-n="'+esc(safeName(r.title,r.year,lk.ep,lk.url),true)+'">下载到本机</button>'
         + '<button class="cp" onclick="playUrl(this.dataset.u)">播放</button>'
         + '<button class="cp" onclick="copyText(this.dataset.u,this.dataset.m)" data-m="清单已复制" data-u="'+esc(lk.url,true)+'">复制清单</button>'
         + '<span class="url">'+esc(lk.url)+'</span></div>';
@@ -345,6 +363,40 @@ function copyRow(i){
   copyText(urls.join('\\r\\n'),
     '已复制 '+urls.length+' 条 → 迅雷「新建任务」Ctrl+V 整批开下');
 }
+let dlTimer = null;
+function startDl(u, n){
+  fetch('/api/download?u='+ENC(u)+'&name='+ENC(n))
+    .then(r=>r.json())
+    .then(d=>{ toast('已加入下载队列：'+d.name+'（存放在工具目录 downloads 文件夹）'); pollDl(); })
+    .catch(()=>toast('任务创建失败'));
+}
+function pollDl(){
+  if(dlTimer) return;
+  refreshDl();
+  dlTimer = setInterval(refreshDl, 1200);
+}
+function refreshDl(){
+  fetch('/api/downloads').then(r=>r.json()).then(d=>{
+    const ts = d.tasks||[];
+    const box = document.getElementById('dlpanel');
+    if(!box) return;
+    if(!ts.length){ box.style.display='none'; return; }
+    box.style.display='block';
+    box.innerHTML = '<div class="dlhead">本机下载任务 · 文件保存在工具目录的 downloads 文件夹（极空间可把这个文件夹设为同步/共享目录）</div>'
+      + ts.map(t=>{
+          let st;
+          if(t.status==='done') st='<span class="ok">✅ 完成</span>';
+          else if(t.status==='error') st='<span class="bad">❌ 失败：'+esc(t.note||'')+'</span>';
+          else if(t.status==='queued') st='<span class="dim">排队中…</span>';
+          else st='<span class="dim">'+esc(t.note||'下载中…')+'</span>';
+          const pct = t.status==='done' ? 100 : (t.pct||0);
+          const size = t.total ? '<span class="dim">'+(t.done/1048576).toFixed(1)+' / '+(t.total/1048576).toFixed(1)+' MB</span>' : '';
+          return '<div class="dltask"><div class="dlname">'+esc(t.name)+'　'+st+'　'+size+'</div>'
+            + '<div class="dlbar"><div class="dlfill" style="width:'+pct+'%"></div></div></div>';
+        }).join('');
+  }).catch(()=>{});
+}
+pollDl();
 function txtTitle(r){
   return ((r.title||'video')+'('+(r.year||'')+')_全季链接')
     .replace(/[\\\\/:*?"<>|\\r\\n\\t]/g,'_');
@@ -378,6 +430,39 @@ $('#wd').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
 </body></html>"""
 
 
+def _run_task(srv, tid: str) -> None:
+    """后台执行一个「下载到本机」任务，进度写回 srv.dl_tasks[tid]。"""
+    t = srv.dl_tasks[tid]
+    with srv.dl_sem:
+        if t["status"] == "cancelled":
+            return
+        def prog(done, total, note=""):
+            t["done"], t["total"], t["note"] = done, total, note
+            t["pct"] = round(done / total * 100, 1) if total else 0.0
+        try:
+            t["status"] = "running"
+            url = t["url"]
+            out = Path(t["path"])
+            if url.split("?")[0].lower().endswith(".m3u8"):
+                # m3u8：ffmpeg 在 → mp4；否则纯 Python 拼 ts（产物路径回写）
+                if downloader.has_ffmpeg():
+                    rc = downloader.download_with_ffmpeg(
+                        url, out, player._referer_for(url), player.UA)
+                    t["status"] = "done" if rc == 0 else f"ffmpeg 返回 {rc}"
+                else:
+                    ts = out.with_suffix(".ts")
+                    rc = downloader.download_python(url, ts, on_progress=prog)
+                    t["status"] = "done" if rc == 0 else f"部分分片失败(码 {rc})，文件可能不完整"
+                    t["path"] = str(ts)
+            else:
+                downloader.download_direct(url, out, referer=t.get("referer") or "",
+                                           on_progress=prog)
+                t["status"] = "done"
+        except Exception as exc:
+            t["status"] = "error"
+            t["note"] = f"{type(exc).__name__}: {exc}"
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "FilmWeb/1.0"
 
@@ -394,7 +479,6 @@ class _Handler(BaseHTTPRequestHandler):
     def _json(self, payload, status: int = 200):
         self._plain(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                     "application/json; charset=utf-8")
-
     # ---- 搜索：NDJSON 流式（进度 → 结果）----
     def _api_search(self, name: str):
         self.send_response(200)
@@ -461,6 +545,30 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
             return
 
+        if path == "/api/download":
+            target = (params.get("u") or [""])[0]
+            name = (params.get("name") or ["video.mp4"])[0]
+            if not target:
+                self._json({"err": "missing u"}, 400)
+                return
+            tid = uuid.uuid4().hex[:12]
+            out = Path(self.server.download_dir) / name
+            self.server.dl_tasks[tid] = {
+                "id": tid, "url": target, "name": name, "path": str(out),
+                "referer": player._referer_for(target),
+                "status": "queued", "done": 0, "total": 0, "pct": 0.0, "note": "",
+            }
+            threading.Thread(target=_run_task, args=(self.server, tid),
+                             daemon=True).start()
+            self._json({"id": tid, "name": name})
+            return
+
+        if path == "/api/downloads":
+            tasks = sorted(self.server.dl_tasks.values(),
+                           key=lambda t: t["id"], reverse=True)
+            self._json({"tasks": tasks})
+            return
+
         if path == "/file":
             target = (params.get("u") or [""])[0]
             if not target:
@@ -521,11 +629,16 @@ class _Handler(BaseHTTPRequestHandler):
 class WebUIServer:
     """网页下载台。search_fn/info_fn 注入，避免与 run.py 循环依赖。"""
 
-    def __init__(self, search_fn, info_fn, cfg: dict, port: int = 0):
+    def __init__(self, search_fn, info_fn, cfg: dict, port: int = 0,
+                 download_dir=None):
         self.search_fn = search_fn
         self.info_fn = info_fn
         self.cfg = cfg
         self.port = port
+        self.download_dir = str(download_dir or Path.cwd() / "downloads")
+        Path(self.download_dir).mkdir(parents=True, exist_ok=True)
+        self.dl_tasks: dict = {}
+        self.dl_sem = threading.Semaphore(2)      # 同时最多 2 个下载任务
         self._srv: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -535,6 +648,9 @@ class WebUIServer:
         srv.info_fn = self.info_fn
         srv.cfg = self.cfg
         srv.page = INDEX_HTML
+        srv.download_dir = self.download_dir
+        srv.dl_tasks = self.dl_tasks
+        srv.dl_sem = self.dl_sem
         self._srv = srv
         self.port = srv.server_address[1]
         self._thread = threading.Thread(target=srv.serve_forever, daemon=True)

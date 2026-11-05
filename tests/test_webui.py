@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +39,33 @@ def fake_search(name, cfg, show_progress=True, on_progress=None, on_notice=None)
 
 def fake_info(url):
     return "1080x608@800k"
+
+
+class _RangeHandler(BaseHTTPRequestHandler):
+    """本地 Range-capable 假源站，供下载任务测试。"""
+    SAMPLE = b"\x00\x01\x02\x03" * 4096            # 16 KB 假视频
+
+    def do_GET(self):
+        import re
+        data = self.SAMPLE
+        m = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range") or "")
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else len(data) - 1
+            chunk, status = data[start:end + 1], 206
+        else:
+            chunk, status = data, 200
+        self.send_response(status)
+        self.send_header("Content-Type", "video/mp4")
+        if status == 206:
+            self.send_header(
+                "Content-Range", f"bytes {int(m.group(1))}-{end}/{len(data)}")
+        self.send_header("Content-Length", str(len(chunk)))
+        self.end_headers()
+        self.wfile.write(chunk)
+
+    def log_message(self, *a):
+        pass
 
 
 def _find_node() -> str | None:
@@ -165,6 +196,59 @@ class TestWebUI(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             self._get("/nowhere")
         self.assertEqual(cm.exception.code, 404)
+
+
+class TestDownloadTask(unittest.TestCase):
+    """「下载到本机」后台任务：启动 → 轮询进度 → 完成落盘。"""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        from http.server import ThreadingHTTPServer as _THS
+        cls.upstream = _THS(("127.0.0.1", 0), _RangeHandler)
+        cls.up_port = cls.upstream.server_address[1]
+        threading.Thread(target=cls.upstream.serve_forever, daemon=True).start()
+
+        cls.dl_dir = tempfile.mkdtemp(prefix="fsdl_")
+        cls.srv = webui.WebUIServer(fake_search, fake_info, {}, download_dir=cls.dl_dir)
+        cls.port = cls.srv.start()
+        cls.base = f"http://127.0.0.1:{cls.port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.stop()
+        cls.upstream.shutdown()
+
+    def _get(self, path: str):
+        with urllib.request.urlopen(self.base + path, timeout=10) as r:
+            return r.status, dict(r.headers), r.read()
+
+    def test_download_task_flow(self):
+        u = urllib.parse.quote(f"http://127.0.0.1:{self.up_port}/a.mp4", safe="")
+        name = urllib.parse.quote("测试影片(2024) 第01集.mp4", safe="")
+        with urllib.request.urlopen(
+                f"{self.base}/api/download?u={u}&name={name}", timeout=10) as r:
+            first = json.loads(r.read())
+        self.assertIn("id", first)
+
+        task = None
+        for _ in range(50):
+            with urllib.request.urlopen(f"{self.base}/api/downloads", timeout=10) as r:
+                tasks = json.loads(r.read())["tasks"]
+            task = next((t for t in tasks if t["id"] == first["id"]), None)
+            if task and task["status"] == "done":
+                break
+            time.sleep(0.1)
+        self.assertIsNotNone(task)
+        self.assertEqual(task["status"], "done")
+        self.assertEqual(task["total"], len(_RangeHandler.SAMPLE))
+        self.assertTrue(task["path"].endswith(".mp4"))
+        self.assertEqual(Path(task["path"]).read_bytes(), _RangeHandler.SAMPLE)
+
+    def test_download_missing_u(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/api/download")
+        self.assertEqual(cm.exception.code, 400)
 
 
 if __name__ == "__main__":
