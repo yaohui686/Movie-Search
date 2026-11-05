@@ -178,7 +178,9 @@ class TestWebUI(unittest.TestCase):
 
     def test_api_ping(self):
         _, _, raw = self._get("/api/ping")
-        self.assertEqual(json.loads(raw), {"ok": True})
+        data = json.loads(raw)
+        self.assertTrue(data.get("ok"))
+        self.assertTrue(data.get("dir"))
 
     def test_play_page(self):
         status, headers, body = self._get("/play?u=http%3A%2F%2Fx%2Fi.m3u8")
