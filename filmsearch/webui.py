@@ -83,6 +83,8 @@ INDEX_HTML = """<!doctype html>
   #dlpanel{display:none;background:var(--card);border:1px solid var(--line);
     border-radius:10px;padding:12px 16px;margin-bottom:14px}
   .dlhead{color:var(--dim);font-size:12px;margin-bottom:8px}
+  #dldir{width:300px;background:#101018;border:1px solid var(--line);
+    border-radius:6px;padding:4px 9px;color:var(--txt);font-size:12px;outline:none;margin:0 6px}
   .dltask{padding:7px 0;border-top:1px solid #1e1e2a}
   .dltask:first-of-type{border-top:0}
   .dlname{font-size:13px;color:#cfd3dc;margin-bottom:5px;word-break:break-all}
@@ -364,10 +366,20 @@ function copyRow(i){
     '已复制 '+urls.length+' 条 → 迅雷「新建任务」Ctrl+V 整批开下');
 }
 let dlTimer = null;
+function dlDir(){
+  const el = document.getElementById('dldir');
+  return el ? el.value.trim() : '';
+}
+function saveDir(){
+  const v = dlDir();
+  localStorage.setItem('fsdl_dir', v);
+  toast(v ? '保存位置已记住：' + v : '已恢复默认位置（downloads 文件夹）');
+}
 function startDl(u, n){
-  fetch('/api/download?u='+ENC(u)+'&name='+ENC(n))
+  const dir = dlDir();
+  fetch('/api/download?u='+ENC(u)+'&name='+ENC(n)+'&dir='+ENC(dir))
     .then(r=>r.json())
-    .then(d=>{ toast('已加入下载队列：'+d.name+'（存放在工具目录 downloads 文件夹）'); pollDl(); })
+    .then(d=>{ toast('已加入下载队列：'+d.name+' → '+d.dir); pollDl(); })
     .catch(()=>toast('任务创建失败'));
 }
 function pollDl(){
@@ -380,10 +392,9 @@ function refreshDl(){
     const ts = d.tasks||[];
     const box = document.getElementById('dlpanel');
     if(!box) return;
-    if(!ts.length){ box.style.display='none'; return; }
     box.style.display='block';
-    box.innerHTML = '<div class="dlhead">本机下载任务 · 文件保存在工具目录的 downloads 文件夹（极空间可把这个文件夹设为同步/共享目录）</div>'
-      + ts.map(t=>{
+    const savedDir = localStorage.getItem('fsdl_dir') || '';
+    const list = ts.length ? ts.map(t=>{
           let st;
           if(t.status==='done') st='<span class="ok">✅ 完成</span>';
           else if(t.status==='error') st='<span class="bad">❌ 失败：'+esc(t.note||'')+'</span>';
@@ -393,7 +404,11 @@ function refreshDl(){
           const size = t.total ? '<span class="dim">'+(t.done/1048576).toFixed(1)+' / '+(t.total/1048576).toFixed(1)+' MB</span>' : '';
           return '<div class="dltask"><div class="dlname">'+esc(t.name)+'　'+st+'　'+size+'</div>'
             + '<div class="dlbar"><div class="dlfill" style="width:'+pct+'%"></div></div></div>';
-        }).join('');
+        }).join('') : '<div class="dim" style="padding:6px 0">暂无下载任务 —— 在下面的结果里点「下载到本机」即可</div>';
+    box.innerHTML = '<div class="dlhead">本机下载 · 保存位置：'
+      + '<input id="dldir" placeholder="留空 = downloads 文件夹（极空间可设为同步目录）" value="'+esc(savedDir)+'" '
+      + 'onchange="saveDir()"> <button class="cp" onclick="saveDir()">记住</button></div>'
+      + list;
   }).catch(()=>{});
 }
 pollDl();
@@ -548,11 +563,14 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/download":
             target = (params.get("u") or [""])[0]
             name = (params.get("name") or ["video.mp4"])[0]
+            dirp = (params.get("dir") or [""])[0].strip()
             if not target:
                 self._json({"err": "missing u"}, 400)
                 return
+            base = Path(dirp) if dirp else Path(self.server.download_dir)
+            base.mkdir(parents=True, exist_ok=True)
             tid = uuid.uuid4().hex[:12]
-            out = Path(self.server.download_dir) / name
+            out = base / name
             self.server.dl_tasks[tid] = {
                 "id": tid, "url": target, "name": name, "path": str(out),
                 "referer": player._referer_for(target),
@@ -560,7 +578,7 @@ class _Handler(BaseHTTPRequestHandler):
             }
             threading.Thread(target=_run_task, args=(self.server, tid),
                              daemon=True).start()
-            self._json({"id": tid, "name": name})
+            self._json({"id": tid, "name": name, "dir": str(base)})
             return
 
         if path == "/api/downloads":
